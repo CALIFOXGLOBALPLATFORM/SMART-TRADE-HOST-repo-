@@ -1,0 +1,11 @@
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/smart_trade_host"
+JWT_SECRET="replace-with-a-long-random-string"
+JWT_EXPIRES_IN="15m"
+REFRESH_EXPIRES_IN="30d"
+PORT=4000
+FRONTEND_URL="http://localhost:5173"
+
+# Get free paper trading keys at https://app.alpaca.markets/paper/dashboard/overview
+ALPACA_ENV="paper"
+ALPACA_API_KEY=""
+ALPACA_API_SECRET=""
