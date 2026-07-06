@@ -1,0 +1,119 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  SUPPORT
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum DepositStatus {
+  AWAITING_PAYMENT
+  AWAITING_REVIEW
+  APPROVED
+  COMPLETED
+  REJECTED
+}
+
+enum WithdrawalStatus {
+  PENDING_APPROVAL
+  APPROVED
+  PROCESSING
+  COMPLETED
+  REJECTED
+}
+
+enum KycStatus {
+  NOT_STARTED
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+}
+
+// A user's brokerage account never has its balance set directly by our
+// system. It only ever reflects what Alpaca reports back for that account:
+// cash, positions, and their live market value. See services/alpaca.ts.
+model User {
+  id                String   @id @default(uuid())
+  email             String   @unique
+  passwordHash      String
+  role              Role     @default(USER)
+  emailVerified     Boolean  @default(false)
+  emailVerifyToken  String?
+  resetToken        String?
+  resetTokenExpires DateTime?
+  kycStatus         KycStatus @default(NOT_STARTED)
+  createdAt         DateTime @default(now())
+
+  // Link to the user's real brokerage sub-account. In production this is
+  // provisioned via Alpaca's Broker API when the user completes onboarding.
+  alpacaAccountId   String?  @unique
+
+  deposits          DepositRequest[]
+  withdrawals       WithdrawalRequest[]
+  notifications     Notification[]
+  auditLogsActor    AuditLog[] @relation("ActorUser")
+  auditLogsSubject  AuditLog[] @relation("SubjectUser")
+}
+
+// A deposit is a request for cash to be moved into the user's real brokerage
+// account. Nothing here credits a balance by itself — COMPLETED only ever
+// gets set after Alpaca confirms the transfer landed in the account.
+model DepositRequest {
+  id          String        @id @default(uuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id])
+  amountUsd   Decimal       @db.Decimal(18, 2)
+  method      String        // "bank_ach" | "crypto"
+  status      DepositStatus @default(AWAITING_PAYMENT)
+  externalRef String?       // Alpaca transfer id / crypto tx hash
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model WithdrawalRequest {
+  id          String            @id @default(uuid())
+  userId      String
+  user        User              @relation(fields: [userId], references: [id])
+  amountUsd   Decimal           @db.Decimal(18, 2)
+  method      String            // "bank_ach" | "crypto"
+  destination String            // masked bank details or wallet address
+  status      WithdrawalStatus  @default(PENDING_APPROVAL)
+  reviewedBy  String?
+  externalRef String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+// Every state-changing action in the system writes one of these. Nothing
+// that touches money or account status is allowed to happen without a
+// corresponding audit row — see middleware/audit.ts.
+model AuditLog {
+  id           String   @id @default(uuid())
+  actorId      String?
+  actor        User?    @relation("ActorUser", fields: [actorId], references: [id])
+  subjectId    String?
+  subject      User?    @relation("SubjectUser", fields: [subjectId], references: [id])
+  action       String
+  reason       String?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+}
